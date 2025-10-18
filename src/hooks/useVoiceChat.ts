@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { ConversationMessage } from '../lib/types';
 import { logger } from '../lib/utils/logger';
+import { getElevenLabsService } from '../lib/elevenlabs';
 
 interface UseVoiceChatOptions {
   onMessage: (message: ConversationMessage) => void;
@@ -13,10 +14,18 @@ export function useVoiceChat({ onMessage, onError }: UseVoiceChatOptions) {
   const [micPermission, setMicPermission] = useState<'requesting' | 'granted' | 'denied' | 'error'>('requesting');
 
   const recognitionRef = useRef<any>(null);
-  const synthRef = useRef<SpeechSynthesis | null>(null);
+  const elevenLabsRef = useRef<ReturnType<typeof getElevenLabsService> | null>(null);
+  const currentAudioContextRef = useRef<AudioContext | null>(null);
+  const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
 
   useEffect(() => {
-    synthRef.current = window.speechSynthesis;
+    try {
+      elevenLabsRef.current = getElevenLabsService();
+      logger.debug('ElevenLabs service initialized');
+    } catch (error) {
+      logger.error('Failed to initialize ElevenLabs:', error);
+      onError('ElevenLabs service not available. Please check your API key.');
+    }
 
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
@@ -33,8 +42,11 @@ export function useVoiceChat({ onMessage, onError }: UseVoiceChatOptions) {
       if (recognitionRef.current) {
         recognitionRef.current.stop();
       }
-      if (synthRef.current) {
-        synthRef.current.cancel();
+      if (currentSourceRef.current) {
+        currentSourceRef.current.stop();
+      }
+      if (currentAudioContextRef.current) {
+        currentAudioContextRef.current.close();
       }
     };
   }, []);
@@ -129,46 +141,61 @@ export function useVoiceChat({ onMessage, onError }: UseVoiceChatOptions) {
     }
   };
 
-  const speak = (text: string): Promise<void> => {
-    return new Promise((resolve) => {
-      if (!synthRef.current) {
-        resolve();
-        return;
+  const speak = async (text: string): Promise<void> => {
+    if (!elevenLabsRef.current) {
+      logger.error('ElevenLabs service not initialized');
+      return;
+    }
+
+    try {
+      if (currentSourceRef.current) {
+        currentSourceRef.current.stop();
+      }
+      if (currentAudioContextRef.current) {
+        currentAudioContextRef.current.close();
       }
 
-      synthRef.current.cancel();
+      setIsSpeaking(true);
+      logger.debug('Converting text to speech with ElevenLabs');
 
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 0.95;
-      utterance.pitch = 1.0;
-      utterance.volume = 1.0;
+      const audioBuffer = await elevenLabsRef.current.textToSpeech(text);
+      const audioContext = new AudioContext();
+      const source = audioContext.createBufferSource();
 
-      utterance.onstart = () => {
-        setIsSpeaking(true);
-        logger.debug('Started speaking');
-      };
+      currentAudioContextRef.current = audioContext;
+      currentSourceRef.current = source;
 
-      utterance.onend = () => {
-        setIsSpeaking(false);
-        logger.debug('Finished speaking');
-        resolve();
-      };
+      source.buffer = audioBuffer;
+      source.connect(audioContext.destination);
 
-      utterance.onerror = (event) => {
-        logger.error('Speech synthesis error:', event);
-        setIsSpeaking(false);
-        resolve();
-      };
+      return new Promise((resolve) => {
+        source.onended = () => {
+          setIsSpeaking(false);
+          logger.debug('Finished speaking');
+          currentSourceRef.current = null;
+          resolve();
+        };
 
-      synthRef.current.speak(utterance);
-    });
+        source.start(0);
+        logger.debug('Started speaking with ElevenLabs voice');
+      });
+    } catch (error) {
+      logger.error('ElevenLabs TTS error:', error);
+      setIsSpeaking(false);
+      onError('Failed to play audio. Please try again.');
+    }
   };
 
   const stopSpeaking = () => {
-    if (synthRef.current) {
-      synthRef.current.cancel();
-      setIsSpeaking(false);
+    if (currentSourceRef.current) {
+      currentSourceRef.current.stop();
+      currentSourceRef.current = null;
     }
+    if (currentAudioContextRef.current) {
+      currentAudioContextRef.current.close();
+      currentAudioContextRef.current = null;
+    }
+    setIsSpeaking(false);
   };
 
   return {
