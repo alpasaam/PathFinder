@@ -1,13 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ConversationMessage, Recommendation, RIASECScores, AgentState, ProgressStage } from '../lib/types';
-import {
-  createConversation,
-  getConversation,
-  updateConversation,
-  getRecommendations,
-  togglePinRecommendation,
-  createRecommendation
-} from '../lib/supabase';
 import { generateSessionId } from '../lib/utils/format';
 import { logger } from '../lib/utils/logger';
 
@@ -15,7 +7,6 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
 export function usePathFinder() {
   const [sessionId] = useState(() => generateSessionId());
-  const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [currentStage, setCurrentStage] = useState<ProgressStage>('questions');
@@ -43,32 +34,10 @@ export function usePathFinder() {
   });
 
   useEffect(() => {
-    initializeConversation();
+    sendInitialGreeting();
   }, []);
 
-  const initializeConversation = async () => {
-    let conversation = await getConversation(sessionId);
-
-    if (!conversation) {
-      conversation = await createConversation(sessionId);
-    }
-
-    if (conversation) {
-      setConversationId(conversation.id);
-      setCurrentStage(conversation.current_stage || 'questions');
-      setQuestionCount(conversation.question_count || 0);
-      setSelectedMajorId(conversation.selected_major_id);
-      logger.info('Conversation initialized', { sessionId, id: conversation.id });
-
-      if (conversation.conversation_data && conversation.conversation_data.length > 0) {
-        setMessages(conversation.conversation_data as ConversationMessage[]);
-      } else {
-        await sendInitialGreeting();
-      }
-    }
-  };
-
-  const sendInitialGreeting = async () => {
+  const sendInitialGreeting = () => {
     const greetingMessage: ConversationMessage = {
       role: 'assistant',
       content: "Hi! I'm PathFinder. I'm here to help you discover what major and career might be perfect for you. Let's chat and explore together! What excites you most about college right now?",
@@ -81,31 +50,16 @@ export function usePathFinder() {
       current_question: 'What excites you most about college right now?',
       question_count: 0
     }));
-
-    await updateConversation(sessionId, {
-      conversation_data: [greetingMessage],
-      current_stage: 'questions',
-      question_count: 0
-    } as any);
   };
 
   const addMessage = useCallback(async (message: ConversationMessage) => {
-    console.log('addMessage called with:', message);
-
     const updatedMessages = [...messages, message];
-    console.log('Updated messages:', updatedMessages);
-
     setMessages(updatedMessages);
 
     if (message.role === 'user') {
-      console.log('Getting agent response for user message');
       await getAgentResponse(updatedMessages);
     }
-
-    await updateConversation(sessionId, {
-      conversation_data: updatedMessages
-    } as any);
-  }, [sessionId, messages]);
+  }, [messages]);
 
   const getAgentResponse = async (conversationHistory: ConversationMessage[]) => {
     try {
@@ -147,7 +101,6 @@ export function usePathFinder() {
       };
 
       const updatedHistory = [...conversationHistory, assistantMessage];
-
       setMessages(updatedHistory);
 
       const userMessages = updatedHistory.filter(m => m.role === 'user').length;
@@ -165,12 +118,6 @@ export function usePathFinder() {
         conversation_stage: newStage,
         question_count: newQuestionCount
       }));
-
-      await updateConversation(sessionId, {
-        conversation_data: updatedHistory,
-        current_stage: newStage,
-        question_count: newQuestionCount
-      } as any);
 
       if (newQuestionCount >= 4 && currentStage === 'questions') {
         await calculateRIASEC(updatedHistory);
@@ -218,11 +165,6 @@ export function usePathFinder() {
       };
 
       setRiasecScores(scores);
-
-      await updateConversation(sessionId, {
-        riasec_scores: scores
-      } as any);
-
       logger.info('RIASEC scores calculated', { scores, confidence: data.confidence });
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
@@ -254,13 +196,23 @@ export function usePathFinder() {
         throw new Error(`Failed to generate major recommendations (${response.status}): ${errorText}`);
       }
 
-      await loadRecommendations();
+      const data = await response.json();
+
+      if (data.recommendations && Array.isArray(data.recommendations)) {
+        const majorRecs: Recommendation[] = data.recommendations.map((rec: any) => ({
+          id: rec.id || generateSessionId(),
+          type: 'major',
+          title: rec.title,
+          description: rec.description,
+          match_score: rec.match_score,
+          metadata: rec.metadata,
+          is_pinned: false
+        }));
+
+        setRecommendations(prev => [...prev, ...majorRecs]);
+      }
+
       setCurrentStage('majors');
-
-      await updateConversation(sessionId, {
-        current_stage: 'majors'
-      } as any);
-
       setAgentState(prev => ({
         ...prev,
         conversation_stage: 'majors',
@@ -299,15 +251,24 @@ export function usePathFinder() {
         throw new Error(`Failed to generate career recommendations (${response.status}): ${errorText}`);
       }
 
-      await loadRecommendations();
+      const data = await response.json();
+
+      if (data.recommendations && Array.isArray(data.recommendations)) {
+        const careerRecs: Recommendation[] = data.recommendations.map((rec: any) => ({
+          id: rec.id || generateSessionId(),
+          type: 'career',
+          title: rec.title,
+          description: rec.description,
+          match_score: rec.match_score,
+          metadata: rec.metadata,
+          is_pinned: false
+        }));
+
+        setRecommendations(prev => [...prev, ...careerRecs]);
+      }
+
       setCurrentStage('careers');
       setSelectedMajorId(majorId);
-
-      await updateConversation(sessionId, {
-        current_stage: 'careers',
-        selected_major_id: majorId
-      } as any);
-
       setAgentState(prev => ({
         ...prev,
         conversation_stage: 'careers',
@@ -321,22 +282,12 @@ export function usePathFinder() {
     }
   };
 
-  const loadRecommendations = async () => {
-    if (!conversationId) return;
-
-    const recs = await getRecommendations(conversationId);
-    setRecommendations(recs);
-  };
-
-  const togglePin = async (recommendationId: string, isPinned: boolean) => {
-    const success = await togglePinRecommendation(recommendationId, isPinned);
-    if (success) {
-      setRecommendations(prev =>
-        prev.map(rec =>
-          rec.id === recommendationId ? { ...rec, is_pinned: isPinned } : rec
-        )
-      );
-    }
+  const togglePin = (recommendationId: string, isPinned: boolean) => {
+    setRecommendations(prev =>
+      prev.map(rec =>
+        rec.id === recommendationId ? { ...rec, is_pinned: isPinned } : rec
+      )
+    );
   };
 
   const extractQuestion = (text: string): string => {
