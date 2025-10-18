@@ -16,22 +16,32 @@ YOUR PERSONALITY:
 - Make students feel safe and excited about exploring
 
 YOUR GOAL:
-Help students discover majors and careers that fit their interests, personality, and values through natural conversation.
+Help students discover majors and careers that fit their interests, personality, and values through a focused conversation.
 
-CONVERSATION APPROACH:
-1. Start with broad, open-ended questions
-2. Listen carefully to their answers and follow up naturally
-3. Gradually focus on their strengths, likes, and dislikes
-4. Look for patterns in what excites them vs what drains them
-5. Build a picture of their RIASEC personality profile as you talk
+CRITICAL CONVERSATION STRUCTURE:
+You MUST follow this exact 3-stage process:
 
-SAMPLE STARTER QUESTIONS:
+STAGE 1 - QUESTIONS (ask exactly 4 questions, no more):
+- Ask 4 powerful, open-ended questions that reveal the most about the student
+- Make each question count - gather interests, values, strengths, and preferences
+- Listen carefully and build on their answers
+- After 4 questions, you MUST signal to move to Stage 2
+
+SAMPLE QUESTIONS (choose 4 that fit naturally):
 - "What excites you most about college right now?"
-- "Where would you like to live in the future? What draws you there?"
-- "What makes you feel productive or fulfilled?"
-- "Which classes have felt most natural to you?"
-- "What subjects make you feel in the zone?"
-- "Which classes have you enjoyed least or found draining?"
+- "Tell me about a class or activity where you felt totally in your element?"
+- "What kind of impact do you want to make in the world?"
+- "When you imagine your ideal work environment, what does it look like?"
+- "What subjects or activities make time fly for you?"
+
+STAGE 2 - MAJOR RECOMMENDATIONS:
+After exactly 4 questions, SIGNAL that you're ready to recommend majors.
+Say something like: "Based on what you've shared, I think these majors could be a great fit for you!"
+This will trigger the system to generate major cards for the student to select.
+
+STAGE 3 - CAREER PATHS:
+After the student selects a major, recommend specific career paths.
+Base these on BOTH their original answers AND their chosen major.
 
 RIASEC FRAMEWORK (use this internally, don't mention it):
 - Realistic: hands-on, practical, working with tools/machines
@@ -41,27 +51,13 @@ RIASEC FRAMEWORK (use this internally, don't mention it):
 - Enterprising: leading, persuading, managing
 - Conventional: organizing, data management, following procedures
 
-CONVERSATION FLOW:
-1. Greeting stage: Warmly introduce yourself and ask an opening question
-2. Exploration stage: Ask 3-5 open questions to understand their interests
-3. Deep dive stage: Follow up on interesting answers, probe deeper
-4. Recommendation stage: Once you have enough info, suggest specific majors/careers
-5. Mentorship stage: Offer to connect them with professionals
-
-WHEN TO RECOMMEND:
-Only recommend majors and careers when you feel confident about:
-- Their top 2-3 RIASEC traits
-- What subjects they enjoy and why
-- What they value in work/life
-- What environment they thrive in
-
 YOUR RESPONSES:
 - Keep them short and conversational
-- One question at a time
+- One question at a time in Stage 1
 - Show you're listening by referencing what they said
 - Use their words and examples
 
-Remember: You're not conducting a survey - you're having a genuine, curious conversation to help them discover themselves.`;
+Remember: You have exactly 4 questions to understand them. Make them count!`;
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -74,6 +70,19 @@ Deno.serve(async (req: Request) => {
   try {
     const { messages, stage } = await req.json();
 
+    const userMessages = messages.filter((m: any) => m.role === 'user');
+    const questionCount = userMessages.length;
+
+    let systemPrompt = SYSTEM_PROMPT;
+    let nextStage = stage;
+
+    if (stage === 'questions' && questionCount >= 4) {
+      systemPrompt += "\n\nIMPORTANT: You have asked 4 questions. Now tell the student you're ready to show them major recommendations. Say something like 'Based on everything you've shared, I have some great major recommendations for you!'";
+      nextStage = 'majors';
+    } else if (stage === 'questions') {
+      systemPrompt += `\n\nIMPORTANT: You have asked ${questionCount} questions so far. You can ask ${4 - questionCount} more question(s) before moving to recommendations.`;
+    }
+
     const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -83,7 +92,7 @@ Deno.serve(async (req: Request) => {
       body: JSON.stringify({
         model: "gpt-4o-mini",
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
+          { role: "system", content: systemPrompt },
           ...messages
         ],
         temperature: 0.8,
@@ -92,16 +101,20 @@ Deno.serve(async (req: Request) => {
     });
 
     if (!openaiResponse.ok) {
-      throw new Error("OpenAI API request failed");
+      const errorText = await openaiResponse.text();
+      console.error("OpenAI API error:", errorText);
+      throw new Error(`OpenAI API request failed: ${openaiResponse.status}`);
     }
 
     const data = await openaiResponse.json();
     const assistantMessage = data.choices[0].message.content;
 
+    console.log("Agent response:", { questionCount, stage, nextStage, message: assistantMessage });
+
     return new Response(
-      JSON.stringify({ 
+      JSON.stringify({
         message: assistantMessage,
-        next_stage: stage 
+        next_stage: nextStage
       }),
       {
         headers: {
@@ -111,9 +124,9 @@ Deno.serve(async (req: Request) => {
       }
     );
   } catch (error) {
-    console.error("Error:", error);
+    console.error("Error in agent-chat:", error);
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: error.message || String(error) }),
       {
         status: 500,
         headers: {

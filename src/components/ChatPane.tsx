@@ -1,16 +1,16 @@
 import { useEffect, useRef } from 'react';
 import { ConversationMessage } from '../lib/types';
 import { formatTimestamp } from '../lib/utils/format';
-import { User, Bot, MicOff } from 'lucide-react';
+import { User, Bot, Mic, MicOff } from 'lucide-react';
 
 interface ChatPaneProps {
   messages: ConversationMessage[];
   isListening: boolean;
   isSpeaking: boolean;
-  onStopListening?: () => void;
+  onToggleMic: () => void;
 }
 
-export default function ChatPane({ messages, isListening, isSpeaking, onStopListening }: ChatPaneProps) {
+export default function ChatPane({ messages, isListening, isSpeaking, onToggleMic }: ChatPaneProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -77,19 +77,32 @@ export default function ChatPane({ messages, isListening, isSpeaking, onStopList
       </div>
 
       <div className="border-t border-gray-200 bg-white p-4">
-        <div className="flex items-center justify-center gap-3">
-          <div className={`w-3 h-3 rounded-full ${isListening ? 'bg-red-500 animate-pulse' : 'bg-gray-300'}`}></div>
-          <p className="text-sm text-gray-600">
-            {isListening ? 'Listening...' : isSpeaking ? 'Speaking...' : 'Ready'}
-          </p>
-          {(isListening || isSpeaking) && onStopListening && (
-            <button
-              onClick={onStopListening}
-              className="ml-2 p-2 bg-red-100 hover:bg-red-200 text-red-600 rounded-lg transition-colors"
-              aria-label="Stop"
-            >
-              <MicOff className="w-4 h-4" />
-            </button>
+        <div className="flex items-center justify-center gap-4">
+          <button
+            onClick={onToggleMic}
+            disabled={isSpeaking}
+            className={`flex items-center gap-3 px-6 py-3 rounded-full font-semibold transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed ${
+              isListening
+                ? 'bg-red-500 hover:bg-red-600 text-white shadow-lg'
+                : 'bg-blue-600 hover:bg-blue-700 text-white shadow-md'
+            }`}
+            aria-label={isListening ? 'Stop recording' : 'Start recording'}
+          >
+            {isListening ? (
+              <>
+                <MicOff className="w-5 h-5" />
+                <span>Stop Recording</span>
+                <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+              </>
+            ) : (
+              <>
+                <Mic className="w-5 h-5" />
+                <span>Start Recording</span>
+              </>
+            )}
+          </button>
+          {isSpeaking && (
+            <p className="text-sm text-gray-600">AI is speaking...</p>
           )}
         </div>
       </div>

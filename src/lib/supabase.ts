@@ -22,6 +22,10 @@ export async function createConversation(sessionId: string): Promise<Conversatio
     .maybeSingle();
 
   if (error) {
+    if (error.code === '23505') {
+      console.log('Conversation already exists, fetching it');
+      return await getConversation(sessionId);
+    }
     console.error('Error creating conversation:', error);
     return null;
   }
