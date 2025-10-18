@@ -17,6 +17,7 @@ export function useVoiceChat({ onMessage, onError }: UseVoiceChatOptions) {
   const elevenLabsRef = useRef<ReturnType<typeof getElevenLabsService> | null>(null);
   const currentAudioContextRef = useRef<AudioContext | null>(null);
   const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const accumulatedTranscriptRef = useRef<string>('');
 
   useEffect(() => {
     try {
@@ -85,17 +86,16 @@ export function useVoiceChat({ onMessage, onError }: UseVoiceChatOptions) {
         const transcript = result[0].transcript.trim();
 
         if (result.isFinal && transcript) {
-          logger.debug('Final speech recognized:', transcript);
-          console.log('Final speech recognized:', transcript);
+          logger.debug('Final speech segment recognized:', transcript);
+          console.log('Final speech segment recognized:', transcript);
 
-          const userMessage: ConversationMessage = {
-            role: 'user',
-            content: transcript,
-            timestamp: Date.now()
-          };
+          if (accumulatedTranscriptRef.current) {
+            accumulatedTranscriptRef.current += ' ' + transcript;
+          } else {
+            accumulatedTranscriptRef.current = transcript;
+          }
 
-          console.log('Calling onMessage with:', userMessage);
-          onMessage(userMessage);
+          logger.debug('Accumulated transcript:', accumulatedTranscriptRef.current);
         } else {
           console.log('Interim result:', transcript);
         }
@@ -119,6 +119,20 @@ export function useVoiceChat({ onMessage, onError }: UseVoiceChatOptions) {
     recognition.onend = () => {
       console.log('Speech recognition ended');
       setIsListening(false);
+
+      if (accumulatedTranscriptRef.current.trim()) {
+        logger.info('Sending accumulated transcript:', accumulatedTranscriptRef.current);
+        const userMessage: ConversationMessage = {
+          role: 'user',
+          content: accumulatedTranscriptRef.current.trim(),
+          timestamp: Date.now()
+        };
+
+        console.log('Calling onMessage with:', userMessage);
+        onMessage(userMessage);
+
+        accumulatedTranscriptRef.current = '';
+      }
     };
 
     recognitionRef.current = recognition;
@@ -135,6 +149,7 @@ export function useVoiceChat({ onMessage, onError }: UseVoiceChatOptions) {
   const startListening = () => {
     if (recognitionRef.current && !isListening) {
       try {
+        accumulatedTranscriptRef.current = '';
         recognitionRef.current.start();
         logger.debug('Starting speech recognition');
       } catch (error) {
