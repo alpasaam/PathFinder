@@ -1,20 +1,20 @@
-import { useEffect, useState } from 'react';
-import MainQuestionBanner from './components/MainQuestionBanner';
-import ChatPane from './components/ChatPane';
-import MajorCard from './components/MajorCard';
-import CareerCard from './components/CareerCard';
-import PinBar from './components/PinBar';
-import MicPermissionPrompt from './components/MicPermissionPrompt';
-import { ProgressBar } from './components/ProgressBar';
-import { useVoiceChat } from './hooks/useVoiceChat';
-import { usePathFinder } from './hooks/usePathFinder';
-import { ConversationMessage } from './lib/types';
-import { logger } from './lib/utils/logger';
+import { useEffect, useState } from "react";
+import MainQuestionBanner from "./components/MainQuestionBanner";
+import ChatPane from "./components/ChatPane";
+import MajorCard from "./components/MajorCard";
+import CareerCard from "./components/CareerCard";
+import PinBar from "./components/PinBar";
+import MicPermissionPrompt from "./components/MicPermissionPrompt";
+import { ProgressBar } from "./components/ProgressBar";
+import { useVoiceChat } from "./hooks/useVoiceChat";
+import { usePathFinder } from "./hooks/usePathFinder";
+import { ConversationMessage } from "./lib/types";
+import { logger } from "./lib/utils/logger";
 
 function App() {
   const [isReady, setIsReady] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
-  const [lastSpokenMessageIndex, setLastSpokenMessageIndex] = useState(-1);
+  const [lastSpokenMessageId, setLastSpokenMessageId] = useState<string>("");
 
   const {
     messages,
@@ -24,9 +24,10 @@ function App() {
     addMessage,
     togglePin,
     selectMajor,
+    skipToMajors,
     majorRecommendations,
     careerRecommendations,
-    pinnedRecommendations
+    pinnedRecommendations,
   } = usePathFinder();
 
   const {
@@ -35,52 +36,76 @@ function App() {
     micPermission,
     toggleListening,
     speak,
-    stopSpeaking,
-    retryPermission
+    retryPermission,
   } = useVoiceChat({
     onMessage: async (message: ConversationMessage) => {
+      console.log("🗣️ User message received in App, sending to PathFinder");
       await addMessage(message);
     },
     onError: (error: string) => {
-      logger.error('Voice chat error:', error);
-    }
+      logger.error("Voice chat error:", error);
+    },
   });
 
   useEffect(() => {
-    if (micPermission === 'granted' && !isReady) {
+    if (micPermission === "granted" && !isReady) {
       setIsReady(true);
     }
   }, [micPermission, isReady]);
 
+  // COMPLETELY REDESIGNED VOICE TRIGGER
   useEffect(() => {
     if (!isReady || !hasStarted || messages.length === 0) return;
 
     const lastMessage = messages[messages.length - 1];
-    const currentMessageIndex = messages.length - 1;
 
+    // Create unique ID for this message
+    const messageId = `${lastMessage.role}-${lastMessage.timestamp}`;
+
+    console.log("🔊 Voice trigger check:", {
+      messageId,
+      lastSpokenId: lastSpokenMessageId,
+      role: lastMessage.role,
+      isSpeaking,
+      alreadySpoken: messageId === lastSpokenMessageId,
+    });
+
+    // Only speak if:
+    // 1. It's an assistant message
+    // 2. We're not currently speaking
+    // 3. We haven't spoken this exact message before
     if (
-      lastMessage.role === 'assistant' &&
+      lastMessage.role === "assistant" &&
       !isSpeaking &&
-      currentMessageIndex > lastSpokenMessageIndex
+      messageId !== lastSpokenMessageId
     ) {
-      logger.info('Speaking message:', lastMessage.content.substring(0, 100));
-      setLastSpokenMessageIndex(currentMessageIndex);
-      speak(lastMessage.content).catch((error) => {
-        logger.error('Failed to speak message:', error);
-      });
+      console.log("🔊 SPEAKING NOW:", lastMessage.content.substring(0, 50));
+      setLastSpokenMessageId(messageId);
+
+      speak(lastMessage.content)
+        .then(() => {
+          console.log("✅ Finished speaking, waiting 500ms before listening");
+          setTimeout(() => {
+            if (!isListening) {
+              console.log("🎤 Auto-starting listening");
+              toggleListening();
+            }
+          }, 500);
+        })
+        .catch((error) => {
+          console.error("❌ Speech failed:", error);
+          logger.error("Failed to speak message:", error);
+        });
     }
-  }, [messages, isReady, hasStarted, isSpeaking, lastSpokenMessageIndex]);
+  }, [messages, isReady, hasStarted, isSpeaking, lastSpokenMessageId]);
 
   const handleStart = () => {
     setHasStarted(true);
   };
 
-  if (micPermission !== 'granted') {
+  if (micPermission !== "granted") {
     return (
-      <MicPermissionPrompt
-        status={micPermission}
-        onRetry={retryPermission}
-      />
+      <MicPermissionPrompt status={micPermission} onRetry={retryPermission} />
     );
   }
 
@@ -103,10 +128,13 @@ function App() {
               />
             </svg>
           </div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-3">Welcome to PathFinder</h1>
+          <h1 className="text-3xl font-bold text-gray-900 mb-3">
+            Welcome to PathFinder
+          </h1>
           <p className="text-gray-600 mb-6 leading-relaxed">
-            I'm here to help you discover the perfect major and career path through a friendly conversation.
-            When you're ready, click the button below and we'll start exploring your interests together.
+            I'm here to help you discover the perfect major and career path
+            through a friendly conversation. When you're ready, click the button
+            below and we'll start exploring your interests together.
           </p>
           <button
             onClick={handleStart}
@@ -131,21 +159,48 @@ function App() {
       />
 
       <div className="flex-1 overflow-hidden flex flex-col lg:flex-row">
-        <div className="lg:w-1/2 h-1/2 lg:h-full border-r border-gray-200">
+        <div className="lg:w-1/2 h-1/2 lg:h-full border-r border-gray-200 relative">
           <ChatPane
             messages={messages}
             isListening={isListening}
             isSpeaking={isSpeaking}
             onToggleMic={toggleListening}
           />
+
+          {/* SKIP BUTTON - Only show during questions stage */}
+          {currentStage === "questions" && (
+            <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-10">
+              <button
+                onClick={skipToMajors}
+                className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-full font-semibold text-sm hover:from-purple-700 hover:to-pink-700 transition-all transform hover:scale-105 shadow-lg flex items-center gap-2"
+              >
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M13 5l7 7-7 7M5 5l7 7-7 7"
+                  />
+                </svg>
+                Skip to Major Selection
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="lg:w-1/2 h-1/2 lg:h-full overflow-y-auto p-4 bg-gray-50">
           <div className="max-w-2xl mx-auto space-y-4">
-            {currentStage === 'questions' && (
+            {currentStage === "questions" && (
               <div className="flex items-center justify-center h-full">
                 <div className="text-center text-gray-500">
-                  <p className="text-lg font-medium mb-2">Building your profile...</p>
+                  <p className="text-lg font-medium mb-2">
+                    Building your profile...
+                  </p>
                   <p className="text-sm">
                     I'm learning about you through our conversation!
                   </p>
@@ -156,13 +211,21 @@ function App() {
               </div>
             )}
 
-            {currentStage === 'majors' && majorRecommendations.length > 0 && (
+            {currentStage === "majors" && majorRecommendations.length > 0 && (
               <div>
-                <h2 className="text-2xl font-bold text-gray-900 mb-3">Majors That Fit You</h2>
-                <p className="text-gray-600 mb-4">Select a major to explore career possibilities!</p>
+                <h2 className="text-2xl font-bold text-gray-900 mb-3">
+                  Majors That Fit You
+                </h2>
+                <p className="text-gray-600 mb-4">
+                  Select a major to explore career possibilities!
+                </p>
                 <div className="space-y-3">
                   {majorRecommendations.map((major) => (
-                    <div key={major.id} onClick={() => selectMajor(major.id)} className="cursor-pointer">
+                    <div
+                      key={major.id}
+                      onClick={() => selectMajor(major.id)}
+                      className="cursor-pointer"
+                    >
                       <MajorCard
                         recommendation={major}
                         onTogglePin={togglePin}
@@ -173,9 +236,11 @@ function App() {
               </div>
             )}
 
-            {currentStage === 'careers' && careerRecommendations.length > 0 && (
+            {currentStage === "careers" && careerRecommendations.length > 0 && (
               <div>
-                <h2 className="text-2xl font-bold text-gray-900 mb-3">Career Paths for Your Major</h2>
+                <h2 className="text-2xl font-bold text-gray-900 mb-3">
+                  Career Paths for Your Major
+                </h2>
                 <div className="space-y-3">
                   {careerRecommendations.map((career) => (
                     <CareerCard

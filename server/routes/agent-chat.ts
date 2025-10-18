@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response } from "express";
 
 const router = Router();
 
@@ -55,99 +55,99 @@ YOUR RESPONSES:
 
 Remember: You have exactly 4 questions to understand them. Make them count!`;
 
-router.post('/', async (req: Request, res: Response) => {
+router.post("/", async (req: Request, res: Response) => {
   try {
-    const { messages, stage } = req.body;
+    const { messages, stage, question_number } = req.body;
 
     if (!messages || !Array.isArray(messages)) {
-      return res.status(400).json({ error: 'Invalid messages format' });
+      return res.status(400).json({ error: "Invalid messages format" });
     }
 
-    const userMessages = messages.filter((m: any) => m.role === 'user');
-    const assistantMessages = messages.filter((m: any) => m.role === 'assistant');
+    // Use the question_number passed from frontend
+    const currentQuestionNumber = question_number || 1;
 
-    const questionsAsked = assistantMessages.length - 1;
+    console.log("📊 Backend received:", {
+      totalMessages: messages.length,
+      stage,
+      question_number: currentQuestionNumber,
+    });
 
     let systemPrompt = SYSTEM_PROMPT;
     let nextStage = stage;
 
-    if (stage === 'questions' && questionsAsked >= 4) {
+    // After question 4 is answered (question_number will be 5), transition to majors
+    if (stage === "questions" && currentQuestionNumber > 4) {
       systemPrompt = `You are PathFinder. You have completed the 4-question discovery phase.
 
 CRITICAL: DO NOT ASK ANY MORE QUESTIONS. You have already asked all 4 questions.
 
 Now you MUST:
-1. Acknowledge what you've learned about the student
-2. Tell them you're ready to show them personalized major recommendations
-3. Say something like: "Based on everything you've shared, I have some great major recommendations for you! Let me show you some majors that could be a perfect fit."
+1. Briefly acknowledge what you've learned about the student (1-2 sentences max)
+2. Tell them you're excited to show them major recommendations
+3. Say something like: "I've got some amazing major recommendations for you based on everything you shared! Let me show you what I found."
 
-DO NOT ask another question. The conversation will now show them major cards to select from.`;
-      nextStage = 'majors';
-    } else if (stage === 'questions' && questionsAsked === 3) {
+Keep your response SHORT - under 30 words. Be enthusiastic but concise!`;
+      nextStage = "majors";
+      console.log("✅ TRANSITIONING TO MAJORS (question > 4)");
+    } else if (stage === "questions") {
       systemPrompt += `\n\n=== CRITICAL INSTRUCTIONS ===
-You have asked ${questionsAsked} questions so far. This is your FINAL question (question #4).
+This is question ${currentQuestionNumber} of 4.
 
-After the student responds to this question, you will transition to showing major recommendations.
+Ask ONE clear, conversational question. Make it:
+- Short and easy to understand
+- Open-ended to get them talking
+- Different from what you've already asked
 
-Ask ONE final powerful question that helps you understand them better. Make it count!
-
-Example final questions:
-- "What does success look like to you in 10 years?"
-- "If you could solve one big problem in the world, what would it be?"
-- "What kind of work would make you excited to wake up every morning?"`;
-    } else if (stage === 'questions') {
-      systemPrompt += `\n\n=== CRITICAL INSTRUCTIONS ===
-You have asked ${questionsAsked} questions so far. You have ${4 - questionsAsked} question(s) remaining.
-
-Ask ONE question at a time. Each question should help you understand:
-- Their interests and passions
+Each question should explore:
+- Their interests and what excites them
 - Their values and what matters to them
-- Their strengths and what they're naturally good at
-- Their ideal work environment
+- Their strengths and natural talents
+- Their ideal work environment or impact
 
-DO NOT ask multiple questions in one response. Ask ONE clear question.`;
+DO NOT ask multiple questions. DO NOT repeat yourself. Ask ONE new question that builds on what you've learned.`;
+      console.log(`💬 Asking question ${currentQuestionNumber} of 4`);
     }
 
-    const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          ...messages
-        ],
-        temperature: 0.7,
-        max_tokens: 150,
-      }),
-    });
+    const openaiResponse = await fetch(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [{ role: "system", content: systemPrompt }, ...messages],
+          temperature: 0.7,
+          max_tokens: 150,
+        }),
+      }
+    );
 
     if (!openaiResponse.ok) {
       const errorText = await openaiResponse.text();
-      console.error('OpenAI API error:', errorText);
+      console.error("OpenAI API error:", errorText);
       throw new Error(`OpenAI API request failed: ${openaiResponse.status}`);
     }
 
-    const data = await openaiResponse.json();
+    const data: any = await openaiResponse.json();
     const assistantMessage = data.choices[0].message.content;
 
-    console.log('Agent response:', {
-      questionsAsked,
-      userResponseCount: userMessages.length,
+    console.log("✅ Agent response:", {
+      question_number: currentQuestionNumber,
       stage,
       nextStage,
-      message: assistantMessage.substring(0, 100)
+      message: assistantMessage.substring(0, 100),
     });
 
     res.json({
       message: assistantMessage,
-      next_stage: nextStage
+      next_stage: nextStage,
+      question_number: currentQuestionNumber,
     });
   } catch (error) {
-    console.error('Error in agent-chat:', error);
+    console.error("Error in agent-chat:", error);
     const errorMessage = error instanceof Error ? error.message : String(error);
     res.status(500).json({ error: errorMessage });
   }
