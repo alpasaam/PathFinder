@@ -5,6 +5,7 @@ import MajorCard from './components/MajorCard';
 import CareerCard from './components/CareerCard';
 import PinBar from './components/PinBar';
 import MicPermissionPrompt from './components/MicPermissionPrompt';
+import { ProgressBar } from './components/ProgressBar';
 import { useVoiceChat } from './hooks/useVoiceChat';
 import { usePathFinder } from './hooks/usePathFinder';
 import { ConversationMessage } from './lib/types';
@@ -17,10 +18,14 @@ function App() {
 
   const {
     messages,
-    recommendations,
     agentState,
+    currentStage,
+    questionCount,
     addMessage,
     togglePin,
+    selectMajor,
+    majorRecommendations,
+    careerRecommendations,
     pinnedRecommendations
   } = usePathFinder();
 
@@ -79,9 +84,6 @@ function App() {
     );
   }
 
-  const majors = recommendations.filter(r => r.type === 'major');
-  const careers = recommendations.filter(r => r.type === 'career');
-
   if (!hasStarted) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-cyan-50 flex items-center justify-center p-4">
@@ -119,6 +121,8 @@ function App() {
 
   return (
     <div className="flex flex-col h-screen bg-gray-50">
+      <ProgressBar currentStage={currentStage} questionCount={questionCount} />
+
       <MainQuestionBanner question={agentState.current_question} />
 
       <PinBar
@@ -138,47 +142,50 @@ function App() {
 
         <div className="lg:w-1/2 h-1/2 lg:h-full overflow-y-auto p-4 bg-gray-50">
           <div className="max-w-2xl mx-auto space-y-4">
-            {recommendations.length === 0 ? (
+            {currentStage === 'questions' && (
               <div className="flex items-center justify-center h-full">
                 <div className="text-center text-gray-500">
                   <p className="text-lg font-medium mb-2">Building your profile...</p>
                   <p className="text-sm">
-                    Keep chatting, and I'll suggest majors and careers that fit you!
+                    I'm learning about you through our conversation!
+                  </p>
+                  <p className="text-xs mt-2 text-gray-400">
+                    {questionCount} of 4 questions asked
                   </p>
                 </div>
               </div>
-            ) : (
-              <>
-                {majors.length > 0 && (
-                  <div>
-                    <h2 className="text-xl font-bold text-gray-900 mb-3">Majors for You</h2>
-                    <div className="space-y-3">
-                      {majors.map((major) => (
-                        <MajorCard
-                          key={major.id}
-                          recommendation={major}
-                          onTogglePin={togglePin}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )}
+            )}
 
-                {careers.length > 0 && (
-                  <div className="mt-6">
-                    <h2 className="text-xl font-bold text-gray-900 mb-3">Career Paths</h2>
-                    <div className="space-y-3">
-                      {careers.map((career) => (
-                        <CareerCard
-                          key={career.id}
-                          recommendation={career}
-                          onTogglePin={togglePin}
-                        />
-                      ))}
+            {currentStage === 'majors' && majorRecommendations.length > 0 && (
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900 mb-3">Majors That Fit You</h2>
+                <p className="text-gray-600 mb-4">Select a major to explore career possibilities!</p>
+                <div className="space-y-3">
+                  {majorRecommendations.map((major) => (
+                    <div key={major.id} onClick={() => selectMajor(major.id)} className="cursor-pointer">
+                      <MajorCard
+                        recommendation={major}
+                        onTogglePin={togglePin}
+                      />
                     </div>
-                  </div>
-                )}
-              </>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {currentStage === 'careers' && careerRecommendations.length > 0 && (
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900 mb-3">Career Paths for Your Major</h2>
+                <div className="space-y-3">
+                  {careerRecommendations.map((career) => (
+                    <CareerCard
+                      key={career.id}
+                      recommendation={career}
+                      onTogglePin={togglePin}
+                    />
+                  ))}
+                </div>
+              </div>
             )}
           </div>
         </div>

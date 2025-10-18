@@ -13,11 +13,16 @@ export interface ConversationMessage {
   timestamp: number;
 }
 
+export type ProgressStage = 'questions' | 'majors' | 'careers';
+
 export interface Conversation {
   id: string;
   session_id: string;
   riasec_scores: RIASECScores;
   conversation_data: ConversationMessage[];
+  current_stage: ProgressStage;
+  question_count: number;
+  selected_major_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -62,7 +67,8 @@ export interface VoiceMessage {
 
 export interface AgentState {
   current_question: string;
-  conversation_stage: 'greeting' | 'exploration' | 'deep_dive' | 'recommendation' | 'mentorship';
+  conversation_stage: ProgressStage;
+  question_count: number;
   gathered_info: {
     interests: string[];
     values: string[];

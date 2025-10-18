@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ConversationMessage, Recommendation, RIASECScores, AgentState } from '../lib/types';
+import { ConversationMessage, Recommendation, RIASECScores, AgentState, ProgressStage } from '../lib/types';
 import {
   createConversation,
   getConversation,
@@ -18,9 +18,13 @@ export function usePathFinder() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
+  const [currentStage, setCurrentStage] = useState<ProgressStage>('questions');
+  const [questionCount, setQuestionCount] = useState(0);
+  const [selectedMajorId, setSelectedMajorId] = useState<string | null>(null);
   const [agentState, setAgentState] = useState<AgentState>({
     current_question: 'Getting ready to chat with you...',
-    conversation_stage: 'greeting',
+    conversation_stage: 'questions',
+    question_count: 0,
     gathered_info: {
       interests: [],
       values: [],
@@ -51,6 +55,9 @@ export function usePathFinder() {
 
     if (conversation) {
       setConversationId(conversation.id);
+      setCurrentStage(conversation.current_stage || 'questions');
+      setQuestionCount(conversation.question_count || 0);
+      setSelectedMajorId(conversation.selected_major_id);
       logger.info('Conversation initialized', { sessionId, id: conversation.id });
 
       if (conversation.conversation_data && conversation.conversation_data.length > 0) {
@@ -71,11 +78,14 @@ export function usePathFinder() {
     setMessages([greetingMessage]);
     setAgentState(prev => ({
       ...prev,
-      current_question: 'What excites you most about college right now?'
+      current_question: 'What excites you most about college right now?',
+      question_count: 0
     }));
 
     await updateConversation(sessionId, {
-      conversation_data: [greetingMessage]
+      conversation_data: [greetingMessage],
+      current_stage: 'questions',
+      question_count: 0
     } as any);
   };
 
@@ -138,22 +148,32 @@ export function usePathFinder() {
       const updatedHistory = [...conversationHistory, assistantMessage];
 
       setMessages(updatedHistory);
+
+      const userMessages = updatedHistory.filter(m => m.role === 'user').length;
+      const newQuestionCount = Math.min(userMessages, 4);
+      setQuestionCount(newQuestionCount);
+
+      const newStage = data.next_stage || currentStage;
+      if (newStage !== currentStage) {
+        setCurrentStage(newStage);
+      }
+
       setAgentState(prev => ({
         ...prev,
         current_question: extractQuestion(data.message),
-        conversation_stage: data.next_stage || prev.conversation_stage
+        conversation_stage: newStage,
+        question_count: newQuestionCount
       }));
 
       await updateConversation(sessionId, {
-        conversation_data: updatedHistory
+        conversation_data: updatedHistory,
+        current_stage: newStage,
+        question_count: newQuestionCount
       } as any);
 
-      if (updatedHistory.length >= 8 && agentState.conversation_stage === 'exploration') {
+      if (newQuestionCount >= 4 && currentStage === 'questions') {
         await calculateRIASEC(updatedHistory);
-      }
-
-      if (updatedHistory.length >= 12 && !recommendations.length) {
-        await generateRecommendations(updatedHistory);
+        await generateMajorRecommendations(updatedHistory);
       }
 
       return assistantMessage;
@@ -208,9 +228,9 @@ export function usePathFinder() {
     }
   };
 
-  const generateRecommendations = async (conversationHistory: ConversationMessage[]) => {
+  const generateMajorRecommendations = async (conversationHistory: ConversationMessage[]) => {
     try {
-      logger.info('Generating recommendations...');
+      logger.info('Generating major recommendations...');
 
       const response = await fetch(`${SUPABASE_URL}/functions/v1/recommend-paths`, {
         method: 'POST',
@@ -220,28 +240,80 @@ export function usePathFinder() {
         body: JSON.stringify({
           conversation_data: conversationHistory,
           riasec_scores: riasecScores,
-          session_id: sessionId
+          session_id: sessionId,
+          type: 'major'
         })
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        logger.error('Recommendations API error:', response.status, errorText);
-        throw new Error(`Failed to generate recommendations (${response.status}): ${errorText}`);
+        logger.error('Major recommendations API error:', response.status, errorText);
+        throw new Error(`Failed to generate major recommendations (${response.status}): ${errorText}`);
       }
 
       await loadRecommendations();
+      setCurrentStage('majors');
+
+      await updateConversation(sessionId, {
+        current_stage: 'majors'
+      } as any);
 
       setAgentState(prev => ({
         ...prev,
-        conversation_stage: 'recommendation',
-        current_question: 'Here are some paths that might fit you!'
+        conversation_stage: 'majors',
+        current_question: 'Here are some majors that might fit you!'
       }));
 
-      logger.info('Recommendations generated successfully');
+      logger.info('Major recommendations generated successfully');
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      logger.error('Error generating recommendations:', errorMsg);
+      logger.error('Error generating major recommendations:', errorMsg);
+    }
+  };
+
+  const generateCareerRecommendations = async (majorId: string) => {
+    try {
+      logger.info('Generating career recommendations for major:', majorId);
+
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/recommend-paths`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          conversation_data: messages,
+          riasec_scores: riasecScores,
+          session_id: sessionId,
+          type: 'career',
+          major_id: majorId
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        logger.error('Career recommendations API error:', response.status, errorText);
+        throw new Error(`Failed to generate career recommendations (${response.status}): ${errorText}`);
+      }
+
+      await loadRecommendations();
+      setCurrentStage('careers');
+      setSelectedMajorId(majorId);
+
+      await updateConversation(sessionId, {
+        current_stage: 'careers',
+        selected_major_id: majorId
+      } as any);
+
+      setAgentState(prev => ({
+        ...prev,
+        conversation_stage: 'careers',
+        current_question: 'Here are some career paths for your chosen major!'
+      }));
+
+      logger.info('Career recommendations generated successfully');
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      logger.error('Error generating career recommendations:', errorMsg);
     }
   };
 
@@ -268,13 +340,23 @@ export function usePathFinder() {
     return questionMatch ? questionMatch[0].trim() : text.split('.')[0] || text;
   };
 
+  const selectMajor = async (majorId: string) => {
+    await generateCareerRecommendations(majorId);
+  };
+
   return {
     messages,
     recommendations,
     agentState,
     riasecScores,
+    currentStage,
+    questionCount,
+    selectedMajorId,
     addMessage,
     togglePin,
+    selectMajor,
+    majorRecommendations: recommendations.filter(r => r.type === 'major'),
+    careerRecommendations: recommendations.filter(r => r.type === 'career'),
     pinnedRecommendations: recommendations.filter(r => r.is_pinned)
   };
 }
