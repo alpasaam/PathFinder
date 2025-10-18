@@ -43,12 +43,21 @@ export function usePathFinder() {
   }, []);
 
   const initializeConversation = async () => {
-    const conversation = await createConversation(sessionId);
+    let conversation = await getConversation(sessionId);
+
+    if (!conversation) {
+      conversation = await createConversation(sessionId);
+    }
+
     if (conversation) {
       setConversationId(conversation.id);
       logger.info('Conversation initialized', { sessionId, id: conversation.id });
 
-      await sendInitialGreeting();
+      if (conversation.conversation_data && conversation.conversation_data.length > 0) {
+        setMessages(conversation.conversation_data as ConversationMessage[]);
+      } else {
+        await sendInitialGreeting();
+      }
     }
   };
 

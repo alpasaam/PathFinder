@@ -57,9 +57,10 @@ export function useVoiceChat({ onMessage, onError }: UseVoiceChatOptions) {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     const recognition = new SpeechRecognition();
 
-    recognition.continuous = false;
-    recognition.interimResults = false;
+    recognition.continuous = true;
+    recognition.interimResults = true;
     recognition.lang = 'en-US';
+    recognition.maxAlternatives = 1;
 
     recognition.onstart = () => {
       setIsListening(true);
@@ -67,27 +68,39 @@ export function useVoiceChat({ onMessage, onError }: UseVoiceChatOptions) {
     };
 
     recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      logger.debug('Recognized speech:', transcript);
-      console.log('Speech recognized:', transcript);
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        const transcript = result[0].transcript.trim();
 
-      const userMessage: ConversationMessage = {
-        role: 'user',
-        content: transcript,
-        timestamp: Date.now()
-      };
+        if (result.isFinal && transcript) {
+          logger.debug('Final speech recognized:', transcript);
+          console.log('Final speech recognized:', transcript);
 
-      console.log('Calling onMessage with:', userMessage);
-      onMessage(userMessage);
-      setIsListening(false);
+          const userMessage: ConversationMessage = {
+            role: 'user',
+            content: transcript,
+            timestamp: Date.now()
+          };
+
+          console.log('Calling onMessage with:', userMessage);
+          onMessage(userMessage);
+          recognition.stop();
+        } else {
+          console.log('Interim result:', transcript);
+        }
+      }
     };
 
     recognition.onerror = (event: any) => {
       logger.error('Speech recognition error:', event.error);
       console.error('Speech recognition error:', event.error);
-      setIsListening(false);
 
-      if (event.error !== 'no-speech' && event.error !== 'aborted') {
+      if (event.error === 'no-speech') {
+        console.log('No speech detected, continuing to listen...');
+      } else if (event.error === 'aborted') {
+        setIsListening(false);
+      } else {
+        setIsListening(false);
         onError(`Speech recognition error: ${event.error}`);
       }
     };
