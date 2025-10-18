@@ -12,6 +12,7 @@ import { logger } from './lib/utils/logger';
 
 function App() {
   const [isReady, setIsReady] = useState(false);
+  const [hasStarted, setHasStarted] = useState(false);
   const [lastSpokenMessageIndex, setLastSpokenMessageIndex] = useState(-1);
 
   const {
@@ -48,7 +49,7 @@ function App() {
   }, [micPermission, isReady]);
 
   useEffect(() => {
-    if (!isReady || messages.length === 0) return;
+    if (!isReady || !hasStarted || messages.length === 0) return;
 
     const lastMessage = messages[messages.length - 1];
     const currentMessageIndex = messages.length - 1;
@@ -68,7 +69,11 @@ function App() {
         }, 500);
       });
     }
-  }, [messages, isReady, isSpeaking, isListening, lastSpokenMessageIndex]);
+  }, [messages, isReady, hasStarted, isSpeaking, isListening, lastSpokenMessageIndex]);
+
+  const handleStart = () => {
+    setHasStarted(true);
+  };
 
   if (micPermission !== 'granted') {
     return (
@@ -81,6 +86,41 @@ function App() {
 
   const majors = recommendations.filter(r => r.type === 'major');
   const careers = recommendations.filter(r => r.type === 'career');
+
+  if (!hasStarted) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-cyan-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-lg w-full text-center">
+          <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-full flex items-center justify-center mx-auto mb-6">
+            <svg
+              className="w-10 h-10 text-white"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+          </div>
+          <h1 className="text-3xl font-bold text-gray-900 mb-3">Welcome to PathFinder</h1>
+          <p className="text-gray-600 mb-6 leading-relaxed">
+            I'm here to help you discover the perfect major and career path through a friendly conversation.
+            When you're ready, click the button below and we'll start exploring your interests together.
+          </p>
+          <button
+            onClick={handleStart}
+            className="px-8 py-4 bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-lg font-semibold text-lg hover:from-blue-700 hover:to-cyan-700 transition-all transform hover:scale-105 shadow-lg"
+          >
+            Start Conversation
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-screen bg-gray-50">
