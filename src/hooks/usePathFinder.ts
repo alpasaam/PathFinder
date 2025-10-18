@@ -107,9 +107,6 @@ export function usePathFinder() {
       setQuestionCount(newQuestionCount);
 
       const newStage = data.next_stage || currentStage;
-      if (newStage !== currentStage) {
-        setCurrentStage(newStage);
-      }
 
       setAgentState(prev => ({
         ...prev,
@@ -118,9 +115,13 @@ export function usePathFinder() {
         question_count: newQuestionCount
       }));
 
-      if (newQuestionCount >= 4 && currentStage === 'questions') {
+      if (newStage === 'majors' && currentStage === 'questions') {
+        logger.info('Transitioning to majors stage - generating recommendations');
+        setCurrentStage(newStage);
         await calculateRIASEC(updatedHistory);
         await generateMajorRecommendations(updatedHistory);
+      } else if (newStage !== currentStage) {
+        setCurrentStage(newStage);
       }
 
       return assistantMessage;
@@ -195,18 +196,23 @@ export function usePathFinder() {
 
       const data = await response.json();
 
-      if (data.recommendations && Array.isArray(data.recommendations)) {
-        const majorRecs: Recommendation[] = data.recommendations.map((rec: any) => ({
-          id: rec.id || generateSessionId(),
+      if (data.majors && Array.isArray(data.majors)) {
+        const majorRecs: Recommendation[] = data.majors.map((rec: any) => ({
+          id: generateSessionId(),
           type: 'major',
           title: rec.title,
-          description: rec.description,
-          match_score: rec.match_score,
-          metadata: rec.metadata,
+          description: rec.why_fits,
+          match_score: 85,
+          metadata: {
+            salary_range: rec.salary_range,
+            day_in_life: rec.day_in_life,
+            details: rec.details
+          },
           is_pinned: false
         }));
 
         setRecommendations(prev => [...prev, ...majorRecs]);
+        logger.info('Added major recommendations:', majorRecs.length);
       }
 
       setCurrentStage('majors');
@@ -249,18 +255,23 @@ export function usePathFinder() {
 
       const data = await response.json();
 
-      if (data.recommendations && Array.isArray(data.recommendations)) {
-        const careerRecs: Recommendation[] = data.recommendations.map((rec: any) => ({
-          id: rec.id || generateSessionId(),
+      if (data.careers && Array.isArray(data.careers)) {
+        const careerRecs: Recommendation[] = data.careers.map((rec: any) => ({
+          id: generateSessionId(),
           type: 'career',
           title: rec.title,
-          description: rec.description,
-          match_score: rec.match_score,
-          metadata: rec.metadata,
+          description: rec.why_fits,
+          match_score: 85,
+          metadata: {
+            salary_range: rec.salary_range,
+            day_in_life: rec.day_in_life,
+            details: rec.details
+          },
           is_pinned: false
         }));
 
         setRecommendations(prev => [...prev, ...careerRecs]);
+        logger.info('Added career recommendations:', careerRecs.length);
       }
 
       setCurrentStage('careers');

@@ -64,16 +64,48 @@ router.post('/', async (req: Request, res: Response) => {
     }
 
     const userMessages = messages.filter((m: any) => m.role === 'user');
-    const questionCount = userMessages.length;
+    const assistantMessages = messages.filter((m: any) => m.role === 'assistant');
+
+    const questionsAsked = assistantMessages.length - 1;
 
     let systemPrompt = SYSTEM_PROMPT;
     let nextStage = stage;
 
-    if (stage === 'questions' && questionCount >= 4) {
-      systemPrompt += "\n\nIMPORTANT: You have asked 4 questions. Now tell the student you're ready to show them major recommendations. Say something like 'Based on everything you've shared, I have some great major recommendations for you!'";
+    if (stage === 'questions' && questionsAsked >= 4) {
+      systemPrompt = `You are PathFinder. You have completed the 4-question discovery phase.
+
+CRITICAL: DO NOT ASK ANY MORE QUESTIONS. You have already asked all 4 questions.
+
+Now you MUST:
+1. Acknowledge what you've learned about the student
+2. Tell them you're ready to show them personalized major recommendations
+3. Say something like: "Based on everything you've shared, I have some great major recommendations for you! Let me show you some majors that could be a perfect fit."
+
+DO NOT ask another question. The conversation will now show them major cards to select from.`;
       nextStage = 'majors';
+    } else if (stage === 'questions' && questionsAsked === 3) {
+      systemPrompt += `\n\n=== CRITICAL INSTRUCTIONS ===
+You have asked ${questionsAsked} questions so far. This is your FINAL question (question #4).
+
+After the student responds to this question, you will transition to showing major recommendations.
+
+Ask ONE final powerful question that helps you understand them better. Make it count!
+
+Example final questions:
+- "What does success look like to you in 10 years?"
+- "If you could solve one big problem in the world, what would it be?"
+- "What kind of work would make you excited to wake up every morning?"`;
     } else if (stage === 'questions') {
-      systemPrompt += `\n\nIMPORTANT: You have asked ${questionCount} questions so far. You can ask ${4 - questionCount} more question(s) before moving to recommendations.`;
+      systemPrompt += `\n\n=== CRITICAL INSTRUCTIONS ===
+You have asked ${questionsAsked} questions so far. You have ${4 - questionsAsked} question(s) remaining.
+
+Ask ONE question at a time. Each question should help you understand:
+- Their interests and passions
+- Their values and what matters to them
+- Their strengths and what they're naturally good at
+- Their ideal work environment
+
+DO NOT ask multiple questions in one response. Ask ONE clear question.`;
     }
 
     const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -88,7 +120,7 @@ router.post('/', async (req: Request, res: Response) => {
           { role: 'system', content: systemPrompt },
           ...messages
         ],
-        temperature: 0.8,
+        temperature: 0.7,
         max_tokens: 150,
       }),
     });
@@ -102,7 +134,13 @@ router.post('/', async (req: Request, res: Response) => {
     const data = await openaiResponse.json();
     const assistantMessage = data.choices[0].message.content;
 
-    console.log('Agent response:', { questionCount, stage, nextStage, message: assistantMessage });
+    console.log('Agent response:', {
+      questionsAsked,
+      userResponseCount: userMessages.length,
+      stage,
+      nextStage,
+      message: assistantMessage.substring(0, 100)
+    });
 
     res.json({
       message: assistantMessage,
