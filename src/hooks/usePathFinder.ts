@@ -3,7 +3,7 @@ import { ConversationMessage, Recommendation, RIASECScores, AgentState, Progress
 import { generateSessionId } from '../lib/utils/format';
 import { logger } from '../lib/utils/logger';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 export function usePathFinder() {
   const [sessionId] = useState(() => generateSessionId());
@@ -65,11 +65,10 @@ export function usePathFinder() {
     try {
       logger.info('Requesting agent response for', conversationHistory.length, 'messages');
 
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/agent-chat`, {
+      const response = await fetch(`${API_URL}/api/agent-chat`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           messages: conversationHistory.map(m => ({
@@ -136,11 +135,10 @@ export function usePathFinder() {
     try {
       logger.info('Calculating RIASEC scores...');
 
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/calculate-riasec`, {
+      const response = await fetch(`${API_URL}/api/calculate-riasec`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           conversation_data: conversationHistory
@@ -176,11 +174,10 @@ export function usePathFinder() {
     try {
       logger.info('Generating major recommendations...');
 
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/recommend-paths`, {
+      const response = await fetch(`${API_URL}/api/recommend-paths`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           conversation_data: conversationHistory,
@@ -230,11 +227,10 @@ export function usePathFinder() {
     try {
       logger.info('Generating career recommendations for major:', majorId);
 
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/recommend-paths`, {
+      const response = await fetch(`${API_URL}/api/recommend-paths`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           conversation_data: messages,
