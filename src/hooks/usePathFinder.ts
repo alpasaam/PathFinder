@@ -99,6 +99,8 @@ export function usePathFinder() {
 
   const getAgentResponse = async (conversationHistory: ConversationMessage[]) => {
     try {
+      logger.info('Requesting agent response for', conversationHistory.length, 'messages');
+
       const response = await fetch(`${SUPABASE_URL}/functions/v1/agent-chat`, {
         method: 'POST',
         headers: {
@@ -114,10 +116,18 @@ export function usePathFinder() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to get agent response');
+        const errorText = await response.text();
+        logger.error('Agent API error:', response.status, errorText);
+        throw new Error(`Failed to get agent response (${response.status}): ${errorText}`);
       }
 
       const data = await response.json();
+
+      if (!data.message) {
+        throw new Error('Agent response missing message field');
+      }
+
+      logger.info('Received agent response:', data.message.substring(0, 100));
 
       const assistantMessage: ConversationMessage = {
         role: 'assistant',
@@ -148,13 +158,16 @@ export function usePathFinder() {
 
       return assistantMessage;
     } catch (error) {
-      logger.error('Error getting agent response:', error);
-      throw error;
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      logger.error('Error getting agent response:', errorMsg);
+      throw new Error(`Agent communication failed: ${errorMsg}`);
     }
   };
 
   const calculateRIASEC = async (conversationHistory: ConversationMessage[]) => {
     try {
+      logger.info('Calculating RIASEC scores...');
+
       const response = await fetch(`${SUPABASE_URL}/functions/v1/calculate-riasec`, {
         method: 'POST',
         headers: {
@@ -166,7 +179,9 @@ export function usePathFinder() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to calculate RIASEC scores');
+        const errorText = await response.text();
+        logger.error('RIASEC API error:', response.status, errorText);
+        throw new Error(`Failed to calculate RIASEC scores (${response.status}): ${errorText}`);
       }
 
       const data = await response.json();
@@ -188,12 +203,15 @@ export function usePathFinder() {
 
       logger.info('RIASEC scores calculated', { scores, confidence: data.confidence });
     } catch (error) {
-      logger.error('Error calculating RIASEC:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      logger.error('Error calculating RIASEC:', errorMsg);
     }
   };
 
   const generateRecommendations = async (conversationHistory: ConversationMessage[]) => {
     try {
+      logger.info('Generating recommendations...');
+
       const response = await fetch(`${SUPABASE_URL}/functions/v1/recommend-paths`, {
         method: 'POST',
         headers: {
@@ -207,7 +225,9 @@ export function usePathFinder() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to generate recommendations');
+        const errorText = await response.text();
+        logger.error('Recommendations API error:', response.status, errorText);
+        throw new Error(`Failed to generate recommendations (${response.status}): ${errorText}`);
       }
 
       await loadRecommendations();
@@ -218,9 +238,10 @@ export function usePathFinder() {
         current_question: 'Here are some paths that might fit you!'
       }));
 
-      logger.info('Recommendations generated');
+      logger.info('Recommendations generated successfully');
     } catch (error) {
-      logger.error('Error generating recommendations:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      logger.error('Error generating recommendations:', errorMsg);
     }
   };
 

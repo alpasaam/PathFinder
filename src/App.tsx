@@ -58,10 +58,13 @@ function App() {
       !isSpeaking &&
       currentMessageIndex > lastSpokenMessageIndex
     ) {
+      logger.info('Speaking message:', lastMessage.content.substring(0, 100));
       setLastSpokenMessageIndex(currentMessageIndex);
-      speak(lastMessage.content);
+      speak(lastMessage.content).catch((error) => {
+        logger.error('Failed to speak message:', error);
+      });
     }
-  }, [messages, isReady, hasStarted, isSpeaking, lastSpokenMessageIndex, speak]);
+  }, [messages, isReady, hasStarted, isSpeaking, lastSpokenMessageIndex]);
 
   const handleStart = () => {
     setHasStarted(true);

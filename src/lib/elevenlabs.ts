@@ -40,6 +40,10 @@ export class ElevenLabsService {
     try {
       logger.debug('Converting text to speech with ElevenLabs:', text.substring(0, 50));
 
+      if (!this.apiKey || this.apiKey === 'your_elevenlabs_api_key') {
+        throw new Error('ElevenLabs API key not configured. Please set VITE_ELEVENLABS_API_KEY in your .env file.');
+      }
+
       const response = await fetch(
         `${ELEVENLABS_API_URL}/text-to-speech/${this.config.voiceId}`,
         {
@@ -63,25 +67,43 @@ export class ElevenLabsService {
       );
 
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`ElevenLabs API error: ${response.status} - ${errorText}`);
+        let errorText = '';
+        try {
+          const errorJson = await response.json();
+          errorText = JSON.stringify(errorJson);
+        } catch {
+          errorText = await response.text();
+        }
+
+        const errorMessage = `ElevenLabs API error (${response.status}): ${errorText}`;
+        logger.error(errorMessage);
+        throw new Error(errorMessage);
       }
 
       const audioData = await response.arrayBuffer();
+
+      if (audioData.byteLength === 0) {
+        throw new Error('ElevenLabs returned empty audio data');
+      }
+
+      logger.debug(`Received audio data: ${audioData.byteLength} bytes`);
+
       const audioContext = new AudioContext();
       const audioBuffer = await audioContext.decodeAudioData(audioData);
 
       logger.debug('Successfully converted text to speech');
       return audioBuffer;
     } catch (error) {
-      logger.error('ElevenLabs TTS error:', error);
-      throw error;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error('ElevenLabs TTS error:', errorMessage);
+      throw new Error(`Failed to convert text to speech: ${errorMessage}`);
     }
   }
 
   async speak(text: string): Promise<void> {
     return new Promise(async (resolve, reject) => {
       try {
+        logger.debug('Starting speech synthesis for text:', text.substring(0, 50));
         const audioBuffer = await this.textToSpeech(text);
         const audioContext = new AudioContext();
         const source = audioContext.createBufferSource();
@@ -90,14 +112,22 @@ export class ElevenLabsService {
 
         source.onended = () => {
           logger.debug('Finished playing audio');
+          audioContext.close();
           resolve();
+        };
+
+        source.onerror = (error) => {
+          logger.error('Audio playback error:', error);
+          audioContext.close();
+          reject(new Error('Failed to play audio'));
         };
 
         source.start(0);
         logger.debug('Started playing audio');
       } catch (error) {
-        logger.error('Error playing audio:', error);
-        reject(error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger.error('Error in speak method:', errorMessage);
+        reject(new Error(`Speech synthesis failed: ${errorMessage}`));
       }
     });
   }

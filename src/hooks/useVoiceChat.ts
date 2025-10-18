@@ -156,22 +156,39 @@ export function useVoiceChat({ onMessage, onError }: UseVoiceChatOptions) {
 
   const speak = async (text: string): Promise<void> => {
     if (!elevenLabsRef.current) {
-      logger.error('ElevenLabs service not initialized');
+      const errorMsg = 'ElevenLabs service not initialized';
+      logger.error(errorMsg);
+      onError(errorMsg);
       return;
     }
 
     try {
+      logger.info('Starting speech for message:', text.substring(0, 100));
+
       if (currentSourceRef.current) {
-        currentSourceRef.current.stop();
+        try {
+          currentSourceRef.current.stop();
+        } catch (e) {
+          logger.debug('Source already stopped');
+        }
       }
       if (currentAudioContextRef.current) {
-        currentAudioContextRef.current.close();
+        try {
+          await currentAudioContextRef.current.close();
+        } catch (e) {
+          logger.debug('AudioContext already closed');
+        }
       }
 
       setIsSpeaking(true);
       logger.debug('Converting text to speech with ElevenLabs');
 
       const audioBuffer = await elevenLabsRef.current.textToSpeech(text);
+
+      if (!audioBuffer) {
+        throw new Error('No audio buffer received from ElevenLabs');
+      }
+
       const audioContext = new AudioContext();
       const source = audioContext.createBufferSource();
 
@@ -181,21 +198,48 @@ export function useVoiceChat({ onMessage, onError }: UseVoiceChatOptions) {
       source.buffer = audioBuffer;
       source.connect(audioContext.destination);
 
-      return new Promise((resolve) => {
+      return new Promise((resolve, reject) => {
         source.onended = () => {
           setIsSpeaking(false);
-          logger.debug('Finished speaking');
+          logger.info('Finished speaking successfully');
           currentSourceRef.current = null;
+          try {
+            audioContext.close();
+          } catch (e) {
+            logger.debug('Error closing audio context:', e);
+          }
           resolve();
         };
 
-        source.start(0);
-        logger.debug('Started speaking with ElevenLabs voice');
+        source.onerror = (error) => {
+          setIsSpeaking(false);
+          const errorMsg = 'Audio playback error';
+          logger.error(errorMsg, error);
+          currentSourceRef.current = null;
+          try {
+            audioContext.close();
+          } catch (e) {
+            logger.debug('Error closing audio context:', e);
+          }
+          reject(new Error(errorMsg));
+        };
+
+        try {
+          source.start(0);
+          logger.info('Started speaking with ElevenLabs voice');
+        } catch (error) {
+          setIsSpeaking(false);
+          const errorMsg = 'Failed to start audio playback';
+          logger.error(errorMsg, error);
+          reject(new Error(errorMsg));
+        }
       });
     } catch (error) {
-      logger.error('ElevenLabs TTS error:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error in speech synthesis';
+      logger.error('ElevenLabs TTS error:', errorMsg);
       setIsSpeaking(false);
-      onError('Failed to play audio. Please try again.');
+      onError(`Speech failed: ${errorMsg}`);
+      throw error;
     }
   };
 
