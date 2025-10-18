@@ -8,7 +8,7 @@ interface ProgressBarProps {
 }
 
 const stages = [
-  { id: 'questions' as const, label: 'Getting to Know You', maxQuestions: 4 },
+  { id: 'questions' as const, label: 'Getting to Know You', maxQuestions: 7 },
   { id: 'majors' as const, label: 'Explore Majors' },
   { id: 'careers' as const, label: 'Discover Careers' }
 ];

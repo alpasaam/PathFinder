@@ -11,17 +11,28 @@ import { logger } from "../lib/utils/logger";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
+const HARDCODED_QUESTIONS = [
+  "What excites you about college the most right now?",
+  "Where would you like to live in the future?",
+  "What makes you feel productive or fulfilled?",
+  "Which high school or first-year courses felt most natural to you?",
+  "What classes have you most enjoyed so far?",
+  "Which subjects made you feel \"in the zone\"?",
+  "Which classes have you disliked or found least engaging?",
+];
+
 export function usePathFinder() {
   const [sessionId] = useState(() => generateSessionId());
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [currentStage, setCurrentStage] = useState<ProgressStage>("questions");
-  const [questionCount, setQuestionCount] = useState(1); // Start at 1 for the first question
+  const [questionCount, setQuestionCount] = useState(0);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedMajorId, setSelectedMajorId] = useState<string | null>(null);
   const [agentState, setAgentState] = useState<AgentState>({
     current_question: "Getting ready to chat with you...",
     conversation_stage: "questions",
-    question_count: 1,
+    question_count: 0,
     gathered_info: {
       interests: [],
       values: [],
@@ -47,15 +58,16 @@ export function usePathFinder() {
     const greetingMessage: ConversationMessage = {
       role: "assistant",
       content:
-        "Hi! I'm PathFinder. I'm here to help you discover what major and career might be perfect for you. Let's have a quick chat so I can get to know you better! Ready? Let's start: What excites you most about college right now?",
+        "Hi! I'm PathFinder. I'm here to help you discover what major and career might be perfect for you. Let's have a quick chat so I can get to know you better! Ready? Let's start: " + HARDCODED_QUESTIONS[0],
       timestamp: Date.now(),
     };
 
     setMessages([greetingMessage]);
-    setQuestionCount(1); // Start at 1 since we're asking the first question
+    setQuestionCount(1);
+    setCurrentQuestionIndex(0);
     setAgentState((prev) => ({
       ...prev,
-      current_question: "What excites you most about college right now?",
+      current_question: HARDCODED_QUESTIONS[0],
       question_count: 1,
     }));
   };
@@ -64,156 +76,62 @@ export function usePathFinder() {
     async (message: ConversationMessage) => {
       console.log("🎤 USER SPOKE:", message.content);
 
-      // IMMEDIATELY add user message
+      // Add user message
       const updatedMessages = [...messages, message];
       setMessages(updatedMessages);
 
       if (message.role === "user") {
-        // IMMEDIATELY increment question count BEFORE calling backend
-        const nextQuestionNum = questionCount + 1;
-        console.log(`🔢 INCREMENTING: ${questionCount} → ${nextQuestionNum}`);
-        setQuestionCount(nextQuestionNum);
+        const nextIndex = currentQuestionIndex + 1;
 
-        // Update agent state immediately
-        setAgentState((prev) => ({
-          ...prev,
-          question_count: nextQuestionNum,
-        }));
+        // Check if we've finished all questions
+        if (nextIndex >= HARDCODED_QUESTIONS.length) {
+          console.log("🎯 ALL QUESTIONS COMPLETE - GENERATING MAJORS");
 
-        // Now get response with the NEXT question number
-        await getAgentResponse(updatedMessages, nextQuestionNum);
+          // Add final message
+          const finalMessage: ConversationMessage = {
+            role: "assistant",
+            content: "Thanks for sharing! Let me analyze your responses and recommend some majors that would be a great fit for you.",
+            timestamp: Date.now(),
+          };
+
+          const finalMessages = [...updatedMessages, finalMessage];
+          setMessages(finalMessages);
+
+          // Transition to majors
+          setCurrentStage("majors");
+          setQuestionCount(HARDCODED_QUESTIONS.length);
+          setAgentState((prev) => ({
+            ...prev,
+            conversation_stage: "majors",
+            question_count: HARDCODED_QUESTIONS.length,
+            current_question: "Here are some majors that might fit you!",
+          }));
+
+          await generateMajorRecommendations(finalMessages);
+        } else {
+          // Ask next question
+          const nextQuestion = HARDCODED_QUESTIONS[nextIndex];
+          const responseMessage: ConversationMessage = {
+            role: "assistant",
+            content: nextQuestion,
+            timestamp: Date.now(),
+          };
+
+          const newMessages = [...updatedMessages, responseMessage];
+          setMessages(newMessages);
+          setCurrentQuestionIndex(nextIndex);
+          setQuestionCount(nextIndex + 1);
+          setAgentState((prev) => ({
+            ...prev,
+            current_question: nextQuestion,
+            question_count: nextIndex + 1,
+          }));
+        }
       }
     },
-    [messages, questionCount]
+    [messages, currentQuestionIndex]
   );
 
-  const getAgentResponse = async (
-    conversationHistory: ConversationMessage[],
-    nextQuestionNumber: number
-  ) => {
-    try {
-      const currentStageValue = agentState.conversation_stage;
-
-      console.log(
-        `📤 SENDING TO BACKEND - Question: ${nextQuestionNumber}, Stage: ${currentStageValue}, Messages: ${conversationHistory.length}`
-      );
-
-      const response = await fetch(`${API_URL}/api/agent-chat`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          messages: conversationHistory.map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
-          stage: currentStageValue,
-          question_number: nextQuestionNumber,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        logger.error(`Agent API error: ${response.status} ${errorText}`);
-        throw new Error(
-          `Failed to get agent response (${response.status}): ${errorText}`
-        );
-      }
-
-      const data = await response.json();
-
-      if (!data.message) {
-        throw new Error("Agent response missing message field");
-      }
-
-      console.log(`📥 GOT RESPONSE - Next stage: ${data.next_stage}`);
-      console.log(`💬 AI says:`, data.message);
-
-      const assistantMessage: ConversationMessage = {
-        role: "assistant",
-        content: data.message,
-        timestamp: Date.now(),
-      };
-
-      const updatedHistory = [...conversationHistory, assistantMessage];
-      setMessages(updatedHistory);
-
-      const newStage = data.next_stage || currentStageValue;
-
-      setAgentState((prev) => ({
-        ...prev,
-        current_question: extractQuestion(data.message),
-        conversation_stage: newStage,
-        question_count: nextQuestionNumber,
-      }));
-
-      // Transition to majors stage after 4 questions
-      if (newStage === "majors" && currentStageValue === "questions") {
-        console.log("🎯 TRANSITIONING TO MAJORS!");
-        setCurrentStage("majors");
-        await calculateRIASEC(updatedHistory);
-        await generateMajorRecommendations(updatedHistory);
-      } else if (newStage !== currentStageValue) {
-        console.log(
-          `🔄 Stage changed from ${currentStageValue} to ${newStage}`
-        );
-        setCurrentStage(newStage);
-      }
-
-      return assistantMessage;
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : "Unknown error";
-      logger.error("Error getting agent response:", errorMsg);
-      throw new Error(`Agent communication failed: ${errorMsg}`);
-    }
-  };
-
-  const calculateRIASEC = async (
-    conversationHistory: ConversationMessage[]
-  ) => {
-    try {
-      logger.info("Calculating RIASEC scores...");
-
-      const response = await fetch(`${API_URL}/api/calculate-riasec`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          conversation_data: conversationHistory,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        logger.error(`RIASEC API error: ${response.status} ${errorText}`);
-        throw new Error(
-          `Failed to calculate RIASEC scores (${response.status}): ${errorText}`
-        );
-      }
-
-      const data = await response.json();
-
-      const scores: RIASECScores = {
-        realistic: data.realistic || 0,
-        investigative: data.investigative || 0,
-        artistic: data.artistic || 0,
-        social: data.social || 0,
-        enterprising: data.enterprising || 0,
-        conventional: data.conventional || 0,
-      };
-
-      setRiasecScores(scores);
-      logger.info("RIASEC scores calculated", {
-        scores,
-        confidence: data.confidence,
-      });
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : "Unknown error";
-      logger.error("Error calculating RIASEC:", errorMsg);
-    }
-  };
 
   const generateMajorRecommendations = async (
     conversationHistory: ConversationMessage[]
@@ -221,33 +139,65 @@ export function usePathFinder() {
     try {
       logger.info("Generating major recommendations...");
 
-      const response = await fetch(`${API_URL}/api/recommend-paths`, {
+      // Create a prompt from the conversation
+      const conversationText = conversationHistory
+        .map((m) => `${m.role}: ${m.content}`)
+        .join("\n");
+
+      const prompt = `Based on this conversation with a student, recommend 5-7 college majors that would be a great fit. For each major, provide:
+- Title (the major name)
+- Why it fits (2-3 sentences explaining why based on their answers)
+- Salary range (e.g., "$60k-$90k")
+- Day in the life (2-3 sentences describing what studying this major is like)
+- Details (any additional relevant information)
+
+Conversation:
+${conversationText}
+
+Respond in JSON format with an array of majors:
+{
+  "majors": [
+    {
+      "title": "Computer Science",
+      "why_fits": "...",
+      "salary_range": "...",
+      "day_in_life": "...",
+      "details": "..."
+    }
+  ]
+}`;
+
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${import.meta.env.VITE_OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
-          conversation_data: conversationHistory,
-          riasec_scores: riasecScores,
-          session_id: sessionId,
-          type: "major",
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "user",
+              content: prompt,
+            },
+          ],
+          response_format: { type: "json_object" },
         }),
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        logger.error(
-          `Major recommendations API error: ${response.status} ${errorText}`
-        );
+        logger.error(`OpenAI API error: ${response.status} ${errorText}`);
         throw new Error(
           `Failed to generate major recommendations (${response.status}): ${errorText}`
         );
       }
 
       const data = await response.json();
+      const result = JSON.parse(data.choices[0].message.content);
 
-      if (data.majors && Array.isArray(data.majors)) {
-        const majorRecs: Recommendation[] = data.majors.map((rec: any) => ({
+      if (result.majors && Array.isArray(result.majors)) {
+        const majorRecs: Recommendation[] = result.majors.map((rec: any) => ({
           id: generateSessionId(),
           type: "major",
           title: rec.title,
@@ -265,13 +215,6 @@ export function usePathFinder() {
         logger.info("Added major recommendations:", majorRecs.length);
       }
 
-      setCurrentStage("majors");
-      setAgentState((prev) => ({
-        ...prev,
-        conversation_stage: "majors",
-        current_question: "Here are some majors that might fit you!",
-      }));
-
       logger.info("Major recommendations generated successfully");
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : "Unknown error";
@@ -283,34 +226,67 @@ export function usePathFinder() {
     try {
       logger.info("Generating career recommendations for major:", majorId);
 
-      const response = await fetch(`${API_URL}/api/recommend-paths`, {
+      const major = recommendations.find((r) => r.id === majorId);
+      if (!major) return;
+
+      const conversationText = messages
+        .map((m) => `${m.role}: ${m.content}`)
+        .join("\n");
+
+      const prompt = `Based on this conversation with a student who has chosen ${major.title} as their major, recommend 5-7 career paths. For each career, provide:
+- Title (the career/job title)
+- Why it fits (2-3 sentences explaining why based on their personality and the major)
+- Salary range (e.g., "$70k-$120k")
+- Day in the life (2-3 sentences describing what a typical day looks like)
+- Details (any additional relevant information about the career path)
+
+Conversation:
+${conversationText}
+
+Respond in JSON format with an array of careers:
+{
+  "careers": [
+    {
+      "title": "Software Engineer",
+      "why_fits": "...",
+      "salary_range": "...",
+      "day_in_life": "...",
+      "details": "..."
+    }
+  ]
+}`;
+
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${import.meta.env.VITE_OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
-          conversation_data: messages,
-          riasec_scores: riasecScores,
-          session_id: sessionId,
-          type: "career",
-          major_id: majorId,
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "user",
+              content: prompt,
+            },
+          ],
+          response_format: { type: "json_object" },
         }),
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        logger.error(
-          `Career recommendations API error: ${response.status} ${errorText}`
-        );
+        logger.error(`OpenAI API error: ${response.status} ${errorText}`);
         throw new Error(
           `Failed to generate career recommendations (${response.status}): ${errorText}`
         );
       }
 
       const data = await response.json();
+      const result = JSON.parse(data.choices[0].message.content);
 
-      if (data.careers && Array.isArray(data.careers)) {
-        const careerRecs: Recommendation[] = data.careers.map((rec: any) => ({
+      if (result.careers && Array.isArray(result.careers)) {
+        const careerRecs: Recommendation[] = result.careers.map((rec: any) => ({
           id: generateSessionId(),
           type: "career",
           title: rec.title,
@@ -351,11 +327,6 @@ export function usePathFinder() {
     );
   };
 
-  const extractQuestion = (text: string): string => {
-    const questionMatch = text.match(/[^.!?]*\?/);
-    return questionMatch ? questionMatch[0].trim() : text.split(".")[0] || text;
-  };
-
   const selectMajor = async (majorId: string) => {
     await generateCareerRecommendations(majorId);
   };
@@ -365,11 +336,11 @@ export function usePathFinder() {
 
     // Set stage to majors
     setCurrentStage("majors");
-    setQuestionCount(4); // Set to completed
+    setQuestionCount(HARDCODED_QUESTIONS.length);
     setAgentState((prev) => ({
       ...prev,
       conversation_stage: "majors",
-      question_count: 4,
+      question_count: HARDCODED_QUESTIONS.length,
       current_question: "Here are some major recommendations for you!",
     }));
 
@@ -382,8 +353,7 @@ export function usePathFinder() {
     };
     setMessages((prev) => [...prev, skipMessage]);
 
-    // Calculate RIASEC and generate recommendations
-    await calculateRIASEC(messages);
+    // Generate recommendations
     await generateMajorRecommendations(messages);
   };
 
