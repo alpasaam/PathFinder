@@ -71,18 +71,20 @@ export function usePathFinder() {
   };
 
   const addMessage = useCallback(async (message: ConversationMessage) => {
-    setMessages(prev => [...prev, message]);
+    setMessages(prev => {
+      const updatedMessages = [...prev, message];
 
-    const updatedMessages = [...messages, message];
+      if (message.role === 'user') {
+        getAgentResponse(updatedMessages);
+      }
 
-    if (message.role === 'user') {
-      await getAgentResponse(updatedMessages);
-    }
+      updateConversation(sessionId, {
+        conversation_data: updatedMessages
+      } as any);
 
-    await updateConversation(sessionId, {
-      conversation_data: updatedMessages
-    } as any);
-  }, [messages, sessionId]);
+      return updatedMessages;
+    });
+  }, [sessionId]);
 
   const getAgentResponse = async (conversationHistory: ConversationMessage[]) => {
     try {
