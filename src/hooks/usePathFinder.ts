@@ -81,23 +81,21 @@ export function usePathFinder() {
 
   const addMessage = useCallback(async (message: ConversationMessage) => {
     console.log('addMessage called with:', message);
-    setMessages(prev => {
-      console.log('Previous messages:', prev);
-      const updatedMessages = [...prev, message];
-      console.log('Updated messages:', updatedMessages);
 
-      if (message.role === 'user') {
-        console.log('Getting agent response for user message');
-        getAgentResponse(updatedMessages);
-      }
+    const updatedMessages = [...messages, message];
+    console.log('Updated messages:', updatedMessages);
 
-      updateConversation(sessionId, {
-        conversation_data: updatedMessages
-      } as any);
+    setMessages(updatedMessages);
 
-      return updatedMessages;
-    });
-  }, [sessionId]);
+    if (message.role === 'user') {
+      console.log('Getting agent response for user message');
+      await getAgentResponse(updatedMessages);
+    }
+
+    await updateConversation(sessionId, {
+      conversation_data: updatedMessages
+    } as any);
+  }, [sessionId, messages]);
 
   const getAgentResponse = async (conversationHistory: ConversationMessage[]) => {
     try {
@@ -127,19 +125,25 @@ export function usePathFinder() {
         timestamp: Date.now()
       };
 
-      setMessages(prev => [...prev, assistantMessage]);
+      const updatedHistory = [...conversationHistory, assistantMessage];
+
+      setMessages(updatedHistory);
       setAgentState(prev => ({
         ...prev,
         current_question: extractQuestion(data.message),
         conversation_stage: data.next_stage || prev.conversation_stage
       }));
 
-      if (conversationHistory.length >= 8 && agentState.conversation_stage === 'exploration') {
-        await calculateRIASEC(conversationHistory);
+      await updateConversation(sessionId, {
+        conversation_data: updatedHistory
+      } as any);
+
+      if (updatedHistory.length >= 8 && agentState.conversation_stage === 'exploration') {
+        await calculateRIASEC(updatedHistory);
       }
 
-      if (conversationHistory.length >= 12 && !recommendations.length) {
-        await generateRecommendations(conversationHistory);
+      if (updatedHistory.length >= 12 && !recommendations.length) {
+        await generateRecommendations(updatedHistory);
       }
 
       return assistantMessage;
