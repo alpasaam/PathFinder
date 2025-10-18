@@ -69,6 +69,7 @@ export function useVoiceChat({ onMessage, onError }: UseVoiceChatOptions) {
     recognition.onresult = (event: any) => {
       const transcript = event.results[0][0].transcript;
       logger.debug('Recognized speech:', transcript);
+      console.log('Speech recognized:', transcript);
 
       const userMessage: ConversationMessage = {
         role: 'user',
@@ -76,12 +77,14 @@ export function useVoiceChat({ onMessage, onError }: UseVoiceChatOptions) {
         timestamp: Date.now()
       };
 
+      console.log('Calling onMessage with:', userMessage);
       onMessage(userMessage);
       setIsListening(false);
     };
 
     recognition.onerror = (event: any) => {
       logger.error('Speech recognition error:', event.error);
+      console.error('Speech recognition error:', event.error);
       setIsListening(false);
 
       if (event.error !== 'no-speech' && event.error !== 'aborted') {
@@ -90,6 +93,7 @@ export function useVoiceChat({ onMessage, onError }: UseVoiceChatOptions) {
     };
 
     recognition.onend = () => {
+      console.log('Speech recognition ended');
       setIsListening(false);
     };
 

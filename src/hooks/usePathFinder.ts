@@ -71,10 +71,14 @@ export function usePathFinder() {
   };
 
   const addMessage = useCallback(async (message: ConversationMessage) => {
+    console.log('addMessage called with:', message);
     setMessages(prev => {
+      console.log('Previous messages:', prev);
       const updatedMessages = [...prev, message];
+      console.log('Updated messages:', updatedMessages);
 
       if (message.role === 'user') {
+        console.log('Getting agent response for user message');
         getAgentResponse(updatedMessages);
       }
 
