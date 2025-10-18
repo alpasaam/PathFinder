@@ -28,8 +28,7 @@ function App() {
     isListening,
     isSpeaking,
     micPermission,
-    startListening,
-    stopListening,
+    toggleListening,
     speak,
     stopSpeaking,
     retryPermission
@@ -60,16 +59,9 @@ function App() {
       currentMessageIndex > lastSpokenMessageIndex
     ) {
       setLastSpokenMessageIndex(currentMessageIndex);
-
-      speak(lastMessage.content).then(() => {
-        setTimeout(() => {
-          if (!isListening) {
-            startListening();
-          }
-        }, 500);
-      });
+      speak(lastMessage.content);
     }
-  }, [messages, isReady, hasStarted, isSpeaking, isListening, lastSpokenMessageIndex]);
+  }, [messages, isReady, hasStarted, isSpeaking, lastSpokenMessageIndex, speak]);
 
   const handleStart = () => {
     setHasStarted(true);
@@ -137,10 +129,7 @@ function App() {
             messages={messages}
             isListening={isListening}
             isSpeaking={isSpeaking}
-            onStopListening={() => {
-              stopListening();
-              stopSpeaking();
-            }}
+            onToggleMic={toggleListening}
           />
         </div>
 

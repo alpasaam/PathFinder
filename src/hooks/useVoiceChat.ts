@@ -96,7 +96,6 @@ export function useVoiceChat({ onMessage, onError }: UseVoiceChatOptions) {
 
           console.log('Calling onMessage with:', userMessage);
           onMessage(userMessage);
-          recognition.stop();
         } else {
           console.log('Interim result:', transcript);
         }
@@ -125,10 +124,19 @@ export function useVoiceChat({ onMessage, onError }: UseVoiceChatOptions) {
     recognitionRef.current = recognition;
   };
 
+  const toggleListening = () => {
+    if (isListening) {
+      stopListening();
+    } else {
+      startListening();
+    }
+  };
+
   const startListening = () => {
     if (recognitionRef.current && !isListening) {
       try {
         recognitionRef.current.start();
+        logger.debug('Starting speech recognition');
       } catch (error) {
         logger.error('Error starting recognition:', error);
       }
@@ -137,7 +145,12 @@ export function useVoiceChat({ onMessage, onError }: UseVoiceChatOptions) {
 
   const stopListening = () => {
     if (recognitionRef.current && isListening) {
-      recognitionRef.current.stop();
+      try {
+        recognitionRef.current.stop();
+        logger.debug('Stopping speech recognition');
+      } catch (error) {
+        logger.error('Error stopping recognition:', error);
+      }
     }
   };
 
@@ -202,6 +215,7 @@ export function useVoiceChat({ onMessage, onError }: UseVoiceChatOptions) {
     isListening,
     isSpeaking,
     micPermission,
+    toggleListening,
     startListening,
     stopListening,
     speak,
